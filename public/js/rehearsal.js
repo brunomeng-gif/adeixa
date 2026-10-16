@@ -2,6 +2,7 @@
 // personagens e espera (ou escuta) as falas do ator.
 import { speak, playBlob } from './voices.js';
 import { listenForLine, recognitionSupported } from './speech.js';
+import { startVoiceMeter } from './vad.js';
 
 const wait = (ms, signal) => new Promise(resolve => {
   const t = setTimeout(resolve, ms);
@@ -28,6 +29,11 @@ export class Rehearsal {
     this.running = true;
     const loop = this.loop = (this.loop || 0) + 1;
     this.ui.state('playing');
+    // Medidor de volume: percebe na hora quando o ator para de falar.
+    if (this.autoListen && !this.meterTried) {
+      this.meterTried = true;
+      this.meter = await startVoiceMeter();
+    }
     while (this.running && this.i < this.blocks.length) {
       this.ctrl = new AbortController();
       this.jumpTo = undefined;
@@ -54,8 +60,12 @@ export class Rehearsal {
 
     const rec = await this.recordingFor(block);
     if (signal.aborted) return;
-    if (rec) await playBlob(rec.blob, signal, this.rate);
-    else await speak(block.spoken || block.text, { ...this.voiceFor(block.character), rate: (this.voiceFor(block.character).rate || 1) * this.rate }, signal);
+    // Para o diagnóstico: quanto tempo entre o fim da fala do ator e o início da deixa.
+    const after = this.lastMine;
+    this.lastMine = null;
+    const onStart = () => { if (after) this.ui.timing?.({ ...after, cueStart: Date.now() }); };
+    if (rec) await playBlob(rec.blob, signal, this.rate, onStart);
+    else await speak(block.spoken || block.text, { ...this.voiceFor(block.character), rate: (this.voiceFor(block.character).rate || 1) * this.rate }, signal, onStart);
     return wait(100, signal);
   }
 
@@ -68,7 +78,9 @@ export class Rehearsal {
       onUpdate: (transcript, result) => this.ui.heard(transcript, result),
       onPrompt: () => this.ui.prompt(),
       pauseMs: this.pauseMs,
+      meter: this.meter,
     });
+    if (out.reason !== 'aborted' && out.reason !== 'mic-blocked') this.lastMine = out;
     if (out.reason === 'mic-blocked') {
       this.autoListen = false;
       this.ui.notice('Não consegui acessar o microfone. Siga com o botão "Próxima" (ou a barra de espaço).');
@@ -98,5 +110,9 @@ export class Rehearsal {
     while (k > 0 && !(this.blocks[k].type === 'speech' && !this.isMine(this.blocks[k]))) k--;
     this.goTo(k);
   }
-  stop() { this.pause(); }
+  stop() {
+    this.pause();
+    this.meter?.stop();
+    this.meter = null;
+  }
 }

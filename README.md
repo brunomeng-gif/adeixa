@@ -13,6 +13,8 @@ No celular:
 - **iPhone**: use o Safari. Pelo botão Compartilhar, escolha "Adicionar à Tela de Início". O reconhecimento
   de voz do iPhone é menos confiável. Se falhar, siga com o botão "Próxima".
 - Use fone de ouvido e permita o microfone quando o navegador pedir.
+- Para ver de onde vem algum atraso, abra o app com `?debug` no fim do endereço
+  (https://brunomeng-gif.github.io/adeixa/?debug). A cada deixa aparecem os tempos medidos.
 
 As peças e gravações ficam salvas no aparelho em que foram importadas. Para
 usar no celular, importe o PDF lá também.
@@ -63,7 +65,9 @@ na nuvem.
 | `public/js/voices.js` | vozes sintéticas e reprodução das gravações |
 | `public/js/rehearsal.js` | motor do ensaio (deixas, sua vez, pausar, voltar) |
 | `public/js/app.js` | telas |
-| `test/parse-pdf.mjs` | `npm test`: roda o separador no PDF da peça e mostra o resultado |
+| `public/js/vad.js` | medidor de volume do microfone (percebe na hora quando o ator para de falar) |
+| `test/parse-pdf.mjs` | roda o separador no PDF da peça e mostra o resultado |
+| `test/timing.mjs` | simula o tempo de resposta das deixas (computador e Android) |
 
 ## Próximos passos possíveis
 

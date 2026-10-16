@@ -1,3 +1,5 @@
+import { audioContext } from './vad.js';
+
 // Vozes sintéticas do próprio navegador (Web Speech API).
 // No Edge aparecem vozes "Natural" em português bem melhores que no Chrome.
 
@@ -38,14 +40,19 @@ export async function defaultVoiceConfig(characters) {
   return cfg;
 }
 
-// Fala o texto e resolve quando termina. O Chrome corta falas longas, então
-// o texto é dividido em frases.
-export function speak(text, { voiceURI, pitch = 1, rate = 1 } = {}, signal) {
+// Fala o texto e resolve quando termina. onStart é chamado quando o som começa.
+export function speak(text, { voiceURI, pitch = 1, rate = 1 } = {}, signal, onStart) {
   return new Promise(async resolve => {
     const voices = await loadVoices();
-    const voice = voices.find(v => v.voiceURI === voiceURI);
-    const parts = text.match(/[^.!?…]+[.!?…]*\s*/g) || [text];
-    let i = 0;
+    // A voz escolhida no computador pode não existir no celular: usa uma voz
+    // em português instalada no aparelho (as que vêm pela internet demoram mais).
+    const voice = voices.find(v => v.voiceURI === voiceURI)
+      || voices.find(v => /^pt[-_]BR/i.test(v.lang) && v.localService)
+      || voices.find(v => /^pt/i.test(v.lang));
+    // O Chrome do computador corta falas muito longas; só nesse caso divide em frases
+    // (cada pedaço a mais acrescenta uma pequena pausa no celular).
+    const parts = text.length > 200 ? (text.match(/[^.!?…]+[.!?…]*\s*/g) || [text]) : [text];
+    let i = 0, started = false;
     const onAbort = () => { speechSynthesis.cancel(); resolve(); };
     signal?.addEventListener('abort', onAbort, { once: true });
     const next = () => {
@@ -55,11 +62,13 @@ export function speak(text, { voiceURI, pitch = 1, rate = 1 } = {}, signal) {
       if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'pt-BR';
       u.pitch = pitch;
       u.rate = rate;
+      u.onstart = () => { if (!started) { started = true; onStart?.(); } };
       u.onend = next;
       u.onerror = next;
       speechSynthesis.speak(u);
     };
-    speechSynthesis.cancel();
+    // Cancelar sem necessidade atrasa a próxima fala em alguns Androids.
+    if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel();
     next();
   });
 }
@@ -70,6 +79,7 @@ export function speak(text, { voiceURI, pitch = 1, rate = 1 } = {}, signal) {
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 let sharedAudio;
 export function unlockAudio() {
+  audioContext(); // o medidor de volume também precisa ser liberado pelo toque
   if (!sharedAudio) sharedAudio = new Audio();
   sharedAudio.src = SILENCE;
   sharedAudio.play().catch(() => {});
@@ -80,7 +90,7 @@ export function unlockAudio() {
   }
 }
 
-export function playBlob(blob, signal, rate = 1) {
+export function playBlob(blob, signal, rate = 1, onStart) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(blob);
     const audio = sharedAudio || (sharedAudio = new Audio());
@@ -95,6 +105,7 @@ export function playBlob(blob, signal, rate = 1) {
       URL.revokeObjectURL(url);
       resolve();
     };
+    audio.onplaying = () => { audio.onplaying = null; onStart?.(); };
     audio.onended = finish;
     audio.onerror = finish;
     signal?.addEventListener('abort', finish, { once: true });

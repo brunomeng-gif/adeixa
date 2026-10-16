@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/parse-pdf.mjs"
+    "test": "node test/parse-pdf.mjs && node test/timing.mjs"
   },
   "dependencies": {
     "pdfjs-dist": "4.10.38"

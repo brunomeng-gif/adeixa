@@ -52,19 +52,41 @@ export function compare(expected, heard) {
   };
 }
 
-// Escuta uma fala. Resolve com { transcript, reason } assim que o ator termina.
+// Junta os resultados de uma sessão de reconhecimento. O Chrome do Android às
+// vezes repete o texto acumulado em resultados separados ("o que", "o que passar"):
+// quando um resultado começa com o anterior, fica só o mais longo.
+function sessionText(results) {
+  const parts = [];
+  for (let i = 0; i < results.length; i++) {
+    const t = results[i][0].transcript.trim();
+    if (!t) continue;
+    const prev = parts[parts.length - 1];
+    if (prev !== undefined && normalize(t).startsWith(normalize(prev))) parts[parts.length - 1] = t;
+    else if (prev !== undefined && normalize(prev).startsWith(normalize(t))) continue;
+    else parts.push(t);
+  }
+  return parts.join(' ');
+}
+
+// Escuta uma fala. Resolve com { transcript, reason, timing } assim que o ator termina.
 //  pauseMs: quanto silêncio esperar depois da última palavra antes de dar a deixa.
+//  meter: medidor de volume (vad.js), opcional. Com ele, o fim da fala é percebido
+//         na hora, sem esperar o reconhecimento entregar o texto.
 //  onUpdate(transcript, result) é chamado a cada trecho reconhecido.
 //  onPrompt() é chamado quando o ator diz "texto" (pedindo o ponto).
-export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 300 } = {}) {
+export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 300, meter = null } = {}) {
   return new Promise(resolve => {
     const rec = new Recognition();
     rec.lang = 'pt-BR';
     rec.continuous = true;
     rec.interimResults = true;
 
-    let finalText = '', interim = '', lastHeard = Date.now(), started = Date.now(), done = false;
-    const current = () => (finalText + ' ' + interim).trim();
+    let previous = '', session = '', lastHeard = Date.now(), done = false, failures = 0;
+    const started = Date.now();
+    const current = () => (previous + ' ' + session).trim();
+    // Tempo de voz esperado para a fala (só os trechos com som, sem as pausas entre palavras).
+    const expectedMs = compare(expected, '').words.length * 250;
+    meter?.reset();
 
     const finish = reason => {
       if (done) return;
@@ -72,47 +94,64 @@ export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 
       clearInterval(timer);
       rec.onend = null;
       try { rec.abort(); } catch { /* já parado */ }
-      resolve({ transcript: current(), reason });
+      resolve({
+        transcript: current(),
+        reason,
+        timing: { finishedAt: Date.now(), voiceEnd: meter?.lastVoiceAt || null, textEnd: lastHeard },
+      });
     };
 
     const check = () => {
       if (done) return;
+      const now = Date.now();
       const heard = current();
-      const quiet = Date.now() - lastHeard;
-      if (!heard) {
-        if (Date.now() - started > 8000 && quiet > 8000) { onPrompt?.(); lastHeard = Date.now(); }
+      const r = compare(expected, heard);
+      const usingVoice = meter && meter.working && meter.lastVoiceAt > 0;
+      const voiceQuiet = usingVoice ? now - meter.lastVoiceAt : null;
+      const textQuiet = now - lastHeard;
+
+      if (!heard && !usingVoice) {
+        if (now - started > 8000 && textQuiet > 8000) { onPrompt?.(); lastHeard = now; }
         return;
       }
-      const r = compare(expected, heard);
       // Disse a última palavra: responde logo.
-      if (r.lastSaid && r.coverage >= 0.6 && quiet >= pauseMs) finish('complete');
+      if (heard && r.lastSaid && r.coverage >= 0.6 && (voiceQuiet ?? textQuiet) >= Math.max(pauseMs, usingVoice ? 120 : 0)) return finish('complete');
+      if (usingVoice) {
+        // O volume mostra que parou de falar; o texto pode ainda não ter chegado.
+        const nearEnd = r.lastSaid || r.endReached || r.coverage >= 0.7 || meter.voicedMs >= expectedMs * 0.7;
+        if (nearEnd && voiceQuiet >= Math.max(pauseMs, 250)) return finish('voice');
+        if (voiceQuiet < 400) return; // ainda falando: nada de cortar
+      }
       // Quase tudo dito (o reconhecimento pode ter errado a última palavra).
-      else if (r.coverage >= 0.9 && quiet >= pauseMs + 700) finish('silence');
+      if (r.coverage >= 0.9 && textQuiet >= pauseMs + 700) return finish('silence');
       // Falou algo e parou de vez: segue mesmo assim. Espera mais para não
       // cortar uma pausa dramática no meio da fala.
-      else if (quiet >= pauseMs + 2500) finish('silence');
+      if (Math.min(textQuiet, voiceQuiet ?? Infinity) >= pauseMs + 2500) return finish('silence');
     };
 
     rec.onresult = e => {
-      interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          if (/^\s*texto\s*\??\s*$/i.test(t)) { onPrompt?.(); continue; }
-          finalText += ' ' + t;
-        } else interim += ' ' + t;
-      }
+      const last = e.results[e.results.length - 1];
+      if (last.isFinal && /^\s*texto\s*\??\s*$/i.test(last[0].transcript)) { onPrompt?.(); return; }
+      session = sessionText(e.results);
       lastHeard = Date.now();
+      failures = 0;
       onUpdate?.(current(), compare(expected, current()));
       check();
     };
-    // O Chrome encerra a escuta sozinho depois de um tempo: reinicia.
-    rec.onend = () => { if (!done) try { rec.start(); } catch { /* ignora */ } };
+    // O Chrome encerra a escuta sozinho (no Android, a cada pausa): reinicia.
+    rec.onend = () => {
+      if (done) return;
+      previous = current();
+      session = '';
+      // Se o reconhecimento falha seguidamente, para de insistir (o medidor de volume segue valendo).
+      if (failures < 3) try { rec.start(); } catch { /* ignora */ }
+    };
     rec.onerror = e => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') finish('mic-blocked');
+      else if (e.error !== 'no-speech' && e.error !== 'aborted') failures++;
     };
 
-    const timer = setInterval(check, 50);
+    const timer = setInterval(check, 40);
     signal?.addEventListener('abort', () => finish('aborted'), { once: true });
     try { rec.start(); } catch { finish('error'); }
   });

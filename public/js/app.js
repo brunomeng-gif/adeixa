@@ -6,6 +6,7 @@ import { recognitionSupported, normalize } from './speech.js';
 import { Rehearsal } from './rehearsal.js';
 
 const $view = document.getElementById('view');
+const DEBUG = new URLSearchParams(location.search).has('debug');
 const $crumb = document.getElementById('crumb');
 const state = { script: null, rehearsal: null };
 
@@ -492,6 +493,13 @@ async function viewRehearse() {
     },
     prompt() { showHint(); },
     notice(msg) { toast(msg, 6000); },
+    // Diagnóstico (abrir o app com ?debug no endereço): mostra de onde vem o atraso.
+    timing: DEBUG ? t => {
+      const { voiceEnd, textEnd, finishedAt } = t.timing;
+      const end = voiceEnd || textEnd;
+      const via = { complete: 'texto completo', voice: 'volume', silence: 'silêncio longo' }[t.reason] || t.reason;
+      toast(`fim da fala → deixa: ${t.cueStart - end} ms · decidiu em ${finishedAt - end} ms (${via}) · voz começou ${t.cueStart - finishedAt} ms depois · medidor ${voiceEnd ? 'ok' : 'sem som'}`, 6000);
+    } : null,
     finished() {
       document.getElementById('summary').innerHTML = '<div class="card done"><h2>Fim do trecho 👏</h2></div>';
       document.getElementById('summary').scrollIntoView({ behavior: 'smooth' });
