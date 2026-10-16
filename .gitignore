@@ -1,0 +1,4 @@
+node_modules/
+# Textos de peças têm direitos autorais: nunca vão para o repositório público
+*.pdf
+.claude/
