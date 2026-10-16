@@ -72,9 +72,13 @@ function sessionText(results) {
 //  pauseMs: quanto silêncio esperar depois da última palavra antes de dar a deixa.
 //  meter: medidor de volume (vad.js), opcional. Com ele, o fim da fala é percebido
 //         na hora, sem esperar o reconhecimento entregar o texto.
+//  expectedVoiceMs: quanto tempo de voz a fala costuma levar (aprendido nos ensaios).
+//  nearEndFactor: que fração desse tempo conta como "perto do fim". Menor = mais
+//         rápido, mas arrisca cortar uma pausa; maior = mais seguro.
 //  onUpdate(transcript, result) é chamado a cada trecho reconhecido.
 //  onPrompt() é chamado quando o ator diz "texto" (pedindo o ponto).
-export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 300, meter = null } = {}) {
+export const DEFAULT_MS_PER_WORD = 250;
+export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 300, meter = null, expectedVoiceMs = null, nearEndFactor = 0.7 } = {}) {
   return new Promise(resolve => {
     const rec = new Recognition();
     rec.lang = 'pt-BR';
@@ -85,7 +89,7 @@ export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 
     const started = Date.now();
     const current = () => (previous + ' ' + session).trim();
     // Tempo de voz esperado para a fala (só os trechos com som, sem as pausas entre palavras).
-    const expectedMs = compare(expected, '').words.length * 250;
+    const expectedMs = expectedVoiceMs ?? compare(expected, '').words.length * DEFAULT_MS_PER_WORD;
     meter?.reset();
 
     const finish = reason => {
@@ -97,6 +101,8 @@ export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 
       resolve({
         transcript: current(),
         reason,
+        coverage: compare(expected, current()).coverage,
+        voicedMs: meter && meter.working ? meter.voicedMs : null,
         timing: { finishedAt: Date.now(), voiceEnd: meter?.lastVoiceAt || null, textEnd: lastHeard },
       });
     };
@@ -118,7 +124,7 @@ export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 
       if (heard && r.lastSaid && r.coverage >= 0.6 && (voiceQuiet ?? textQuiet) >= Math.max(pauseMs, usingVoice ? 120 : 0)) return finish('complete');
       if (usingVoice) {
         // O volume mostra que parou de falar; o texto pode ainda não ter chegado.
-        const nearEnd = r.lastSaid || r.endReached || r.coverage >= 0.7 || meter.voicedMs >= expectedMs * 0.7;
+        const nearEnd = r.lastSaid || r.endReached || r.coverage >= 0.7 || meter.voicedMs >= expectedMs * nearEndFactor;
         if (nearEnd && voiceQuiet >= Math.max(pauseMs, 250)) return finish('voice');
         if (voiceQuiet < 400) return; // ainda falando: nada de cortar
       }

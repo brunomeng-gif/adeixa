@@ -2,7 +2,8 @@ import { parsePdfPages, parsePlainText, charactersOf } from './parser.js';
 import { extractPdfPages } from './pdf-extract.js';
 import * as store from './storage.js';
 import { portugueseVoices, defaultVoiceConfig, speak, loadVoices, unlockAudio, keepScreenOn } from './voices.js';
-import { recognitionSupported, normalize } from './speech.js';
+import { recognitionSupported, normalize, compare } from './speech.js';
+import { emptyStats, expectationFor, learn } from './rhythm.js';
 import { Rehearsal } from './rehearsal.js';
 
 const $view = document.getElementById('view');
@@ -262,6 +263,7 @@ async function viewSetup() {
       <label class="check"><input type="checkbox" id="autoListen" ${st.autoListen ? 'checked' : ''} ${recognitionSupported ? '' : 'disabled'}> Ouvir minha voz e dar a deixa sozinho ${recognitionSupported ? '' : '<span class="muted small">(indisponível neste navegador)</span>'}</label>
       <label class="check"><input type="checkbox" id="readDirections" ${st.readDirections ? 'checked' : ''}> Ler as rubricas em voz alta</label>
       ${speedControls(st)}
+      ${rhythmInfo(s)}
       <div class="row"><button class="btn primary big" id="go">▶ Começar ensaio</button></div>
       <p class="muted small">Dica: use fone de ouvido. Diga <b>"texto"</b> quando esquecer a fala e o app mostra o ponto.</p>
     </section>
@@ -302,6 +304,8 @@ async function viewSetup() {
   document.getElementById('autoListen').onchange = e => { st.autoListen = e.target.checked; saveSoon(); };
   document.getElementById('readDirections').onchange = e => { st.readDirections = e.target.checked; saveSoon(); };
   bindSpeedControls(st);
+  const forget = document.getElementById('forgetRhythm');
+  if (forget) forget.onclick = () => { s.rhythm = emptyStats(); saveSoon(); viewSetup(); };
   $view.querySelectorAll('[data-voice]').forEach(sel => sel.onchange = () => { s.voices[sel.dataset.voice].voiceURI = sel.value; saveSoon(); });
   $view.querySelectorAll('[data-pitch]').forEach(r => r.onchange = () => { s.voices[r.dataset.pitch].pitch = +r.value; saveSoon(); });
   $view.querySelectorAll('[data-test]').forEach(b => b.onclick = () => {
@@ -498,7 +502,8 @@ async function viewRehearse() {
       const { voiceEnd, textEnd, finishedAt } = t.timing;
       const end = voiceEnd || textEnd;
       const via = { complete: 'texto completo', voice: 'volume', silence: 'silêncio longo' }[t.reason] || t.reason;
-      toast(`fim da fala → deixa: ${t.cueStart - end} ms · decidiu em ${finishedAt - end} ms (${via}) · voz começou ${t.cueStart - finishedAt} ms depois · medidor ${voiceEnd ? 'ok' : 'sem som'}`, 6000);
+      const exp = t.expectation?.expectedVoiceMs;
+      toast(`fim da fala → deixa: ${t.cueStart - end} ms · decidiu em ${finishedAt - end} ms (${via}) · voz começou ${t.cueStart - finishedAt} ms depois · medidor ${voiceEnd ? 'ok' : 'sem som'} · voz ${t.voicedMs ?? '?'} de ${exp ? Math.round(exp) : '?'} ms esperados (${t.expectation?.source ?? '?'})`, 7000);
     } : null,
     finished() {
       document.getElementById('summary').innerHTML = '<div class="card done"><h2>Fim do trecho 👏</h2></div>';
@@ -526,6 +531,7 @@ async function viewRehearse() {
     autoListen: st.autoListen,
     rate: st.rate,
     pauseMs: st.pauseMs ?? 300,
+    rhythm: rhythmFor(s),
     ui,
   });
 
@@ -568,6 +574,33 @@ function bindSpeedControls(st, onChange) {
     onChange?.();
     saveSoon();
   });
+}
+
+function rhythmInfo(script) {
+  const r = script.rhythm;
+  const n = r ? Object.keys(r.lines).length : 0;
+  if (!n) return '<p class="small muted">O app aprende o seu ritmo durante os ensaios. Isso deixa as deixas mais certeiras, principalmente no Android.</p>';
+  return `<p class="small muted">Ritmo aprendido em ${n} ${n === 1 ? 'fala' : 'falas'}${r.msPerWord ? ` (cerca de ${(r.msPerWord / 1000).toFixed(2).replace('.', ',')} s de voz por palavra)` : ''}. <button class="btn small-btn ghost" id="forgetRhythm">Esquecer ritmo</button></p>`;
+}
+
+// Ritmo aprendido do ator nesta peça (fica salvo junto com a peça, neste aparelho).
+function rhythmFor(script) {
+  script.rhythm ||= emptyStats();
+  const words = b => compare(b.spoken || b.text, '').words.length;
+  let backup = null;
+  return {
+    expect: b => expectationFor(script.rhythm, b.id, words(b)),
+    learn(b, out) {
+      const before = JSON.stringify(script.rhythm);
+      if (learn(script.rhythm, b.id, words(b), out)) { backup = before; saveSoon(); }
+    },
+    undo() {
+      if (!backup) return;
+      script.rhythm = JSON.parse(backup);
+      backup = null;
+      saveSoon();
+    },
+  };
 }
 
 const initials = w => w.replace(/(\p{L})\p{L}*/gu, '$1');

@@ -43,15 +43,16 @@ function fakeMeter(voiceUntil, gaps = []) {
   return m;
 }
 
-async function trial({ name, results, voiceUntil, pauseMs, gaps, expected = 'O que passar primeiro eu pego. Demora?', meter = true, expectMax, expectMin = 0 }) {
+async function trial({ name, results, voiceUntil, pauseMs, gaps, expected = 'O que passar primeiro eu pego. Demora?', meter = true, expectMax, expectMin = 0, opts = {} }) {
   now = 0; timers.length = 0; script = results;
   let out = null;
-  listenForLine(expected, { pauseMs, meter: meter ? fakeMeter(voiceUntil, gaps) : null }).then(o => { out = o; });
+  listenForLine(expected, { pauseMs, meter: meter ? fakeMeter(voiceUntil, gaps) : null, ...opts }).then(o => { out = o; });
   for (let t = 0; t < 20000 && !out; t += 10) await advance(t);
   const delay = out.timing.finishedAt - voiceUntil;
   const ok = delay <= expectMax && delay >= expectMin;
   console.log(`${ok ? 'ok  ' : 'FALHOU'} ${name}: deixa ${delay} ms depois de parar de falar (${out.reason})`);
   if (!ok) process.exitCode = 1;
+  return out;
 }
 
 // Android: o texto só chega bem depois de o ator parar (o caso que estava lento).
@@ -66,3 +67,35 @@ await trial({ name: 'Sem medidor (só texto), ajuste 0,3 s', results: desktop, v
 // Pausa dramática de 1,2 s no meio da fala não pode disparar a deixa.
 await trial({ name: 'Pausa no meio da fala', results: [[600, 'o que passar'], [3800, 'o que passar primeiro eu pego demora', true]], voiceUntil: 2600, pauseMs: 300, gaps: [[700, 1900]], expectMin: 0, expectMax: 400 });
 await trial({ name: 'Fala curta "Não."', results: [[1500, 'não', true]], voiceUntil: 400, pauseMs: 300, expected: 'Não.', expectMax: 400 });
+
+// ---- ritmo aprendido (rhythm.js) ----
+const { emptyStats, expectationFor, learn } = await import('../public/js/rhythm.js');
+const LONG = 'Cara, não vou jogar um isqueiro desses fora. Você faz ideia de quanto tempo isso aqui leva pra se desintegrar na natureza?';
+const words = 20; // palavras de LONG
+// Android: o texto final só chega 1,2 s depois de o ator parar.
+const late = end => [[end + 1200, LONG, true]];
+
+// Ator lento (300 ms de voz por palavra = 6 s) com uma pausa dramática de 1,2 s aos 75% da fala.
+const stats = emptyStats();
+let exp = expectationFor(stats, 'b1', words);
+await trial({ name: 'Ator lento, sem ritmo aprendido: pausa aos 75% CORTA a fala', expected: LONG, results: late(7200), voiceUntil: 7200, pauseMs: 300, gaps: [[4500, 5700]], opts: exp, expectMax: -1500, expectMin: -3000 });
+// Ele passa a fala inteira uma vez (sem a pausa) e o app aprende quanto ela dura.
+let out = await trial({ name: 'Ator lento, fala inteira (aprendendo)', expected: LONG, results: late(6000), voiceUntil: 6000, pauseMs: 300, opts: exp, expectMax: 400 });
+learn(stats, 'b1', words, out);
+exp = expectationFor(stats, 'b1', words);
+await trial({ name: 'Ator lento, com ritmo aprendido: pausa aos 75% não corta', expected: LONG, results: late(7200), voiceUntil: 7200, pauseMs: 300, gaps: [[4500, 5700]], opts: exp, expectMax: 400 });
+
+// Ator rápido (150 ms/palavra = 3 s): sem ritmo, a voz nunca chega ao "perto do fim" padrão.
+const fast = emptyStats();
+exp = expectationFor(fast, 'b2', words);
+out = await trial({ name: 'Ator rápido, sem ritmo aprendido: deixa demora', expected: LONG, results: late(3000), voiceUntil: 3000, pauseMs: 300, opts: exp, expectMin: 1000, expectMax: 3000 });
+learn(fast, 'b2', words, out);
+exp = expectationFor(fast, 'b2', words);
+await trial({ name: 'Ator rápido, com ritmo aprendido: deixa rápida', expected: LONG, results: late(3000), voiceUntil: 3000, pauseMs: 300, opts: exp, expectMax: 400 });
+
+// Uma deixa que veio cedo (medição menor) puxa a referência só um pouco para baixo.
+const before = stats.lines.b1.ms;
+learn(stats, 'b1', words, { reason: 'voice', voicedMs: before * 0.6 });
+const drop = 1 - stats.lines.b1.ms / before;
+console.log(`${drop < 0.1 ? 'ok  ' : 'FALHOU'} Medição curta baixa a referência só ${Math.round(drop * 100)}%`);
+if (drop >= 0.1) process.exitCode = 1;

@@ -46,6 +46,9 @@ Use fone de ouvido, para o microfone não captar as deixas.
    Na barra de baixo dá para ajustar, durante o ensaio, a **velocidade das
    deixas** e o **tempo de resposta** (quanto o app espera depois que você
    termina de falar). As mudanças valem a partir da próxima fala.
+   O app **aprende o seu ritmo** (quanto tempo de voz cada fala leva) e, a cada
+   ensaio, acerta melhor o fim das falas. Se a deixa vier cedo e você tocar em
+   "⟲ Deixa", aquela medição é descartada. Dá para zerar em "Esquecer ritmo".
 5. **Gravar** (opcional): cada ator grava as próprias falas. Em "Exportar
    gravações", gera um arquivo para mandar ao elenco, que faz "Importar
    gravações". As falas gravadas substituem a voz sintética.
@@ -65,6 +68,7 @@ na nuvem.
 | `public/js/voices.js` | vozes sintéticas e reprodução das gravações |
 | `public/js/rehearsal.js` | motor do ensaio (deixas, sua vez, pausar, voltar) |
 | `public/js/app.js` | telas |
+| `public/js/rhythm.js` | aprende o ritmo do ator (tempo de voz por palavra e por fala) |
 | `public/js/vad.js` | medidor de volume do microfone (percebe na hora quando o ator para de falar) |
 | `test/parse-pdf.mjs` | roda o separador no PDF da peça e mostra o resultado |
 | `test/timing.mjs` | simula o tempo de resposta das deixas (computador e Android) |

@@ -12,7 +12,8 @@ const untilAborted = signal => new Promise(resolve => signal.addEventListener('a
 
 export class Rehearsal {
   // opts: { blocks, isMine(block), voiceFor(character), narratorVoice, recordingFor(block),
-  //         readDirections, autoListen, rate, pauseMs, ui }
+  //         readDirections, autoListen, rate, pauseMs, rhythm, ui }
+  // rhythm: { expect(block), learn(block, out), undo() } — ritmo aprendido do ator (rhythm.js).
   // rate e pauseMs podem ser alterados durante o ensaio e valem a partir da próxima fala.
   constructor(opts) {
     Object.assign(this, opts);
@@ -73,14 +74,20 @@ export class Rehearsal {
     this.ui.waitingForMe(block);
     if (!this.autoListen) return untilAborted(signal);
     const expected = block.spoken || block.text;
+    const expectation = this.rhythm?.expect(block) || {};
     const out = await listenForLine(expected, {
       signal,
       onUpdate: (transcript, result) => this.ui.heard(transcript, result),
       onPrompt: () => this.ui.prompt(),
       pauseMs: this.pauseMs,
       meter: this.meter,
+      ...expectation,
     });
-    if (out.reason !== 'aborted' && out.reason !== 'mic-blocked') this.lastMine = out;
+    if (out.reason !== 'aborted' && out.reason !== 'mic-blocked') {
+      this.lastMine = { ...out, expectation };
+      this.rhythm?.learn(block, out);
+      this.learnedAt = Date.now();
+    }
     if (out.reason === 'mic-blocked') {
       this.autoListen = false;
       this.ui.notice('Não consegui acessar o microfone. Siga com o botão "Próxima" (ou a barra de espaço).');
@@ -106,6 +113,9 @@ export class Rehearsal {
   next() { this.goTo(this.i + 1); }
   // Volta para a última deixa (fala de outro personagem) antes da posição atual.
   repeatCue() {
+    // Voltou logo depois de uma fala sua: a deixa provavelmente veio cedo demais,
+    // então essa medição não serve para aprender o ritmo.
+    if (this.learnedAt && Date.now() - this.learnedAt < 8000) { this.rhythm?.undo(); this.learnedAt = 0; }
     let k = this.i - 1;
     while (k > 0 && !(this.blocks[k].type === 'speech' && !this.isMine(this.blocks[k]))) k--;
     this.goTo(k);
