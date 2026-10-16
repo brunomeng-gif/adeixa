@@ -1,7 +1,7 @@
 import { parsePdfPages, parsePlainText, charactersOf } from './parser.js';
 import { extractPdfPages } from './pdf-extract.js';
 import * as store from './storage.js';
-import { portugueseVoices, defaultVoiceConfig, speak, loadVoices, unlockAudio, keepScreenOn } from './voices.js';
+import { portugueseVoices, defaultVoiceConfig, speak, loadVoices, unlockAudio, keepScreenOn, genderOfVoice, guessGender, setGender } from './voices.js';
 import { recognitionSupported, normalize, compare } from './speech.js';
 import { emptyStats, expectationFor, learn } from './rhythm.js';
 import { Rehearsal } from './rehearsal.js';
@@ -231,17 +231,29 @@ async function viewSetup() {
   const scenes = scenesOf(s.blocks);
   const voices = await portugueseVoices();
   const missing = chars.map(c => c.name).filter(n => !s.voices[n]);
+  let changed = false;
   if (missing.length) {
-    const used = Object.keys(s.voices).length;
-    const defaults = await defaultVoiceConfig([...Object.keys(s.voices), ...missing]);
+    const defaults = defaultVoiceConfig([...Object.keys(s.voices), ...missing]);
     missing.forEach(n => { s.voices[n] = defaults[n]; });
-    if (!s.voices.__narrador) s.voices.__narrador = { ...(await defaultVoiceConfig(['x'])).x, pitch: 1, rate: 1.1 };
-    if (used !== Object.keys(s.voices).length) saveSoon();
+    changed = true;
   }
+  if (!s.voices.__narrador) { s.voices.__narrador = { gender: 'f', voiceURI: '', variant: 0, pitch: 1, rate: 1.1 }; changed = true; }
+  // Peças antigas não tinham gênero: deduz pela voz que estava escolhida (ou pelo nome).
+  for (const [name, cfg] of Object.entries(s.voices)) {
+    if (cfg.gender) continue;
+    cfg.gender = genderOfVoice(voices.find(v => v.voiceURI === cfg.voiceURI)) || guessGender(name);
+    changed = true;
+  }
+  if (changed) saveSoon();
+  const hasGender = g => voices.some(v => (genderOfVoice(v) ?? 'f') === g);
   const recs = await store.listRecordings(s.id);
   const recCount = name => recs.filter(r => r.character === name).length;
   const st = s.settings;
-  const voiceOptions = cfg => voices.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cfg.voiceURI ? 'selected' : ''}>${esc(v.name.replace(/^Microsoft /, ''))} (${esc(v.lang)})</option>`).join('');
+  const voiceLabel = v => `${v.name.replace(/^Microsoft /, '').replace(/ - Portuguese.*$/, '')} · ${/BR/i.test(v.lang) ? 'Brasil' : /PT/i.test(v.lang) ? 'Portugal' : v.lang}`;
+  const voiceOptions = cfg => `<option value="" ${cfg.voiceURI ? '' : 'selected'}>Automática</option>` + voices
+    .filter(v => (genderOfVoice(v) ?? 'f') === cfg.gender || v.voiceURI === cfg.voiceURI || !hasGender(cfg.gender))
+    .map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === cfg.voiceURI ? 'selected' : ''}>${esc(voiceLabel(v))}</option>`).join('');
+  const genderSelect = (name, cfg) => `<select data-gender="${esc(name)}" aria-label="Gênero da voz"><option value="f" ${cfg.gender === 'f' ? 'selected' : ''}>Feminina</option><option value="m" ${cfg.gender === 'm' ? 'selected' : ''}>Masculina</option></select>`;
 
   $view.innerHTML = html`
     <section class="card">
@@ -277,13 +289,15 @@ async function viewSetup() {
           const label = name === '__narrador' ? '<em>Rubricas</em>' : esc(name);
           return html`<tr>
             <td><strong>${label}</strong>${name !== '__narrador' ? `<div class="small muted">${recCount(name)} de ${chars.find(c => c.name === name).lines} gravadas</div>` : ''}</td>
-            <td><select data-voice="${esc(name)}">${voiceOptions(cfg)}</select></td>
+            <td>${genderSelect(name, cfg)}</td>
+            <td><select data-voice="${esc(name)}" aria-label="Voz">${voiceOptions(cfg)}</select></td>
             <td><label class="small">tom <input type="range" min="0.5" max="1.6" step="0.05" value="${cfg.pitch}" data-pitch="${esc(name)}"></label></td>
             <td class="row"><button class="btn small-btn" data-test="${esc(name)}">Ouvir</button>${name !== '__narrador' ? `<button class="btn small-btn" data-record="${esc(name)}">🎙 Gravar falas</button>` : ''}</td>
           </tr>`;
         }).join('')}
       </table>
       ${voices.length ? '' : '<p class="warn">Nenhuma voz sintética encontrada neste navegador.</p>'}
+      ${voices.length && !(hasGender('m') && hasGender('f')) ? `<p class="muted small">Este aparelho só tem voz ${hasGender('m') ? 'masculina' : 'feminina'} em português. As vozes ${hasGender('m') ? 'femininas' : 'masculinas'} usam essa mesma voz com o tom ajustado.</p>` : ''}
       <div class="row">
         <button class="btn" id="exportRec">Exportar gravações</button>
         <label class="btn">Importar gravações<input type="file" id="importRec" accept=".json" hidden></label>
@@ -307,6 +321,13 @@ async function viewSetup() {
   const forget = document.getElementById('forgetRhythm');
   if (forget) forget.onclick = () => { s.rhythm = emptyStats(); saveSoon(); viewSetup(); };
   $view.querySelectorAll('[data-voice]').forEach(sel => sel.onchange = () => { s.voices[sel.dataset.voice].voiceURI = sel.value; saveSoon(); });
+  $view.querySelectorAll('[data-gender]').forEach(sel => sel.onchange = () => {
+    // Volta para "Automática", que escolhe uma voz do gênero novo, com tom próprio.
+    setGender(s.voices, sel.dataset.gender, sel.value);
+    saveSoon();
+    const y = window.scrollY;
+    viewSetup().then(() => window.scrollTo(0, y));
+  });
   $view.querySelectorAll('[data-pitch]').forEach(r => r.onchange = () => { s.voices[r.dataset.pitch].pitch = +r.value; saveSoon(); });
   $view.querySelectorAll('[data-test]').forEach(b => b.onclick = () => {
     const name = b.dataset.test;
