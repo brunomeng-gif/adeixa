@@ -3,7 +3,21 @@
 Protótipo web para atores ensaiarem o texto sozinhos: o app fala as deixas dos
 outros personagens e escuta a sua fala para saber quando continuar.
 
-## Como rodar
+## Online
+
+**https://brunomeng-gif.github.io/adeixa/**. Cada `git push` na branch `main`
+publica de novo automaticamente (GitHub Actions → Pages).
+
+No celular:
+- **Android**: use o Chrome. Pelo menu ⋮, escolha "Adicionar à tela inicial".
+- **iPhone**: use o Safari. Pelo botão Compartilhar, escolha "Adicionar à Tela de Início". O reconhecimento
+  de voz do iPhone é menos confiável. Se falhar, siga com o botão "Próxima".
+- Use fone de ouvido e permita o microfone quando o navegador pedir.
+
+As peças e gravações ficam salvas no aparelho em que foram importadas. Para
+usar no celular, importe o PDF lá também.
+
+## Como rodar no computador
 
 Precisa do [Node.js](https://nodejs.org) instalado.
 
