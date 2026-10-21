@@ -3,6 +3,8 @@
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 export const recognitionSupported = !!Recognition;
+// No Android, o sistema toca um bipe toda vez que o reconhecimento liga/desliga.
+export const isAndroid = /Android/i.test(navigator.userAgent || '');
 
 export function normalize(s) {
   return s.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
@@ -75,12 +77,15 @@ function sessionText(results) {
 //  expectedVoiceMs: quanto tempo de voz a fala costuma levar (aprendido nos ensaios).
 //  nearEndFactor: que fração desse tempo conta como "perto do fim". Menor = mais
 //         rápido, mas arrisca cortar uma pausa; maior = mais seguro.
+//  useText: false = não usa o reconhecimento de texto, só o medidor de volume
+//         (sem os bipes do Android; o fim da fala vem do ritmo aprendido).
 //  onUpdate(transcript, result) é chamado a cada trecho reconhecido.
 //  onPrompt() é chamado quando o ator diz "texto" (pedindo o ponto).
 export const DEFAULT_MS_PER_WORD = 250;
-export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 300, meter = null, expectedVoiceMs = null, nearEndFactor = 0.7 } = {}) {
+export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 300, meter = null, expectedVoiceMs = null, nearEndFactor = 0.7, useText = true } = {}) {
   return new Promise(resolve => {
-    const rec = new Recognition();
+    // Objeto vazio no lugar do reconhecimento quando ele não é usado.
+    const rec = useText && Recognition ? new Recognition() : { start() {}, abort() {} };
     rec.lang = 'pt-BR';
     rec.continuous = true;
     rec.interimResults = true;
@@ -158,6 +163,7 @@ export function listenForLine(expected, { onUpdate, onPrompt, signal, pauseMs = 
     };
 
     const timer = setInterval(check, 40);
+    if (signal?.aborted) return finish('aborted');
     signal?.addEventListener('abort', () => finish('aborted'), { once: true });
     try { rec.start(); } catch { finish('error'); }
   });

@@ -99,3 +99,20 @@ learn(stats, 'b1', words, { reason: 'voice', voicedMs: before * 0.6 });
 const drop = 1 - stats.lines.b1.ms / before;
 console.log(`${drop < 0.1 ? 'ok  ' : 'FALHOU'} Medição curta baixa a referência só ${Math.round(drop * 100)}%`);
 if (drop >= 0.1) process.exitCode = 1;
+
+// ---- modo sem bipes (Android): só o medidor de volume, sem reconhecimento de texto ----
+const noText = { useText: false };
+const created = [];
+const RealRec = globalThis.window.SpeechRecognition;
+globalThis.window.SpeechRecognition = class extends RealRec { constructor() { super(); created.push(this); } };
+const { listenForLine: listenNoBeep } = await import('../public/js/speech.js?sem-bipe');
+await trial({ name: 'Sem bipes, fala curta', results: [], voiceUntil: 1500, pauseMs: 300, opts: noText, expectMax: 400 });
+const quiet = emptyStats();
+exp = expectationFor(quiet, 'b3', words);
+out = await trial({ name: 'Sem bipes, fala longa (1º ensaio)', expected: LONG, results: [], voiceUntil: 5000, pauseMs: 300, opts: { ...noText, ...exp }, expectMax: 400 });
+learn(quiet, 'b3', words, out);
+exp = expectationFor(quiet, 'b3', words);
+await trial({ name: 'Sem bipes, com ritmo aprendido: pausa aos 75% não corta', expected: LONG, results: [], voiceUntil: 6200, pauseMs: 300, gaps: [[3750, 4950]], opts: { ...noText, ...exp }, expectMax: 400 });
+await listenNoBeep('Teste.', { useText: false, signal: AbortSignal.abort() });
+console.log(`${created.length === 0 ? 'ok  ' : 'FALHOU'} Sem bipes: o reconhecimento de texto nunca é ligado`);
+if (created.length) process.exitCode = 1;

@@ -2,7 +2,7 @@ import { parsePdfPages, parsePlainText, charactersOf } from './parser.js';
 import { extractPdfPages } from './pdf-extract.js';
 import * as store from './storage.js';
 import { portugueseVoices, defaultVoiceConfig, speak, loadVoices, unlockAudio, keepScreenOn, genderOfVoice, guessGender, setGender } from './voices.js';
-import { recognitionSupported, normalize, compare } from './speech.js';
+import { recognitionSupported, isAndroid, normalize, compare } from './speech.js';
 import { emptyStats, expectationFor, learn } from './rhythm.js';
 import { Rehearsal } from './rehearsal.js';
 
@@ -125,7 +125,7 @@ async function viewHome() {
 
 function browserNotes() {
   const notes = [];
-  if (!recognitionSupported) notes.push('Este navegador não reconhece fala: use Chrome ou Edge para o app ouvir você. Sem isso, você avança com a barra de espaço.');
+  if (!recognitionSupported) notes.push('Este navegador não reconhece texto falado: o app percebe o fim das suas falas só pelo volume da voz. Para mais precisão, use o Chrome ou o Edge.');
   if (!window.speechSynthesis) notes.push('Este navegador não tem vozes sintéticas.');
   return notes.length ? `<section class="card warn">${notes.map(n => `<p>${esc(n)}</p>`).join('')}</section>` : '';
 }
@@ -272,12 +272,13 @@ async function viewSetup() {
         ${[['hidden', 'Escondidas'], ['initials', 'Só as iniciais'], ['full', 'Texto completo']].map(([v, l]) => `<label class="radio"><input type="radio" name="display" value="${v}" ${st.display === v ? 'checked' : ''}> ${l}</label>`).join('')}
       </div>
       <h3>4. Opções</h3>
-      <label class="check"><input type="checkbox" id="autoListen" ${st.autoListen ? 'checked' : ''} ${recognitionSupported ? '' : 'disabled'}> Ouvir minha voz e dar a deixa sozinho ${recognitionSupported ? '' : '<span class="muted small">(indisponível neste navegador)</span>'}</label>
+      <label class="check"><input type="checkbox" id="autoListen" ${st.autoListen ? 'checked' : ''}> Ouvir minha voz e dar a deixa sozinho</label>
+      ${recognitionSupported ? `<label class="check"><input type="checkbox" id="useText" ${useText(st) ? 'checked' : ''}> Reconhecer o texto que eu falo <span class="muted small">(mais preciso no 1º ensaio, mas no Android faz bipes a cada fala)</span></label>` : ''}
       <label class="check"><input type="checkbox" id="readDirections" ${st.readDirections ? 'checked' : ''}> Ler as rubricas em voz alta</label>
       ${speedControls(st)}
       ${rhythmInfo(s)}
       <div class="row"><button class="btn primary big" id="go">▶ Começar ensaio</button></div>
-      <p class="muted small">Dica: use fone de ouvido. Diga <b>"texto"</b> quando esquecer a fala e o app mostra o ponto.</p>
+      <p class="muted small">Dica: use fone de ouvido. Esqueceu a fala? Toque em 💡 (ou diga <b>"texto"</b>, se o reconhecimento de texto estiver ligado).</p>
     </section>
 
     <section class="card">
@@ -316,6 +317,8 @@ async function viewSetup() {
   sceneTo.onchange = () => { st.sceneTo = Math.max(+sceneTo.value, st.scene); saveSoon(); };
   $view.querySelectorAll('[name=display]').forEach(r => r.onchange = () => { st.display = r.value; saveSoon(); });
   document.getElementById('autoListen').onchange = e => { st.autoListen = e.target.checked; saveSoon(); };
+  const useTextBox = document.getElementById('useText');
+  if (useTextBox) useTextBox.onchange = e => { st.useText = e.target.checked; saveSoon(); };
   document.getElementById('readDirections').onchange = e => { st.readDirections = e.target.checked; saveSoon(); };
   bindSpeedControls(st);
   const forget = document.getElementById('forgetRhythm');
@@ -480,7 +483,7 @@ async function viewRehearse() {
       <div id="summary"></div>
     </section>
     <div class="controls">
-      <div class="heard" id="heard"><span class="muted">${st.autoListen && recognitionSupported ? 'O app vai ouvir você na sua vez.' : 'Na sua vez, fale e aperte "Próxima" (ou espaço).'}</span></div>
+      <div class="heard" id="heard"><span class="muted">${st.autoListen ? 'O app vai ouvir você na sua vez.' : 'Na sua vez, fale e aperte "Próxima" (ou espaço).'}</span></div>
       <div class="row center">
         <button class="btn" id="back" title="Voltar para a deixa anterior">⟲ Deixa</button>
         <button class="btn primary" id="play">⏸ Pausar</button>
@@ -550,6 +553,7 @@ async function viewRehearse() {
     recordingFor: b => recs.get(b.id),
     readDirections: st.readDirections,
     autoListen: st.autoListen,
+    useText: useText(st),
     rate: st.rate,
     pauseMs: st.pauseMs ?? 300,
     rhythm: rhythmFor(s),
@@ -596,6 +600,9 @@ function bindSpeedControls(st, onChange) {
     saveSoon();
   });
 }
+
+// Reconhecimento de texto: desligado por padrão no Android, por causa dos bipes do sistema.
+const useText = st => recognitionSupported && (st.useText ?? !isAndroid);
 
 function rhythmInfo(script) {
   const r = script.rhythm;

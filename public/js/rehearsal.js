@@ -12,14 +12,17 @@ const untilAborted = signal => new Promise(resolve => signal.addEventListener('a
 
 export class Rehearsal {
   // opts: { blocks, isMine(block), voiceFor(character), narratorVoice, recordingFor(block),
-  //         readDirections, autoListen, rate, pauseMs, rhythm, ui }
+  //         readDirections, autoListen, useText, rate, pauseMs, rhythm, ui }
+  // useText: usar também o reconhecimento de texto (no Android ele faz bipes).
   // rhythm: { expect(block), learn(block, out), undo() } — ritmo aprendido do ator (rhythm.js).
   // rate e pauseMs podem ser alterados durante o ensaio e valem a partir da próxima fala.
   constructor(opts) {
     Object.assign(this, opts);
     this.i = 0;
     this.running = false;
-    this.autoListen = opts.autoListen && recognitionSupported;
+    this.useText = opts.useText !== false && recognitionSupported;
+    // Sem reconhecimento de texto, ainda dá para ouvir o ator pelo volume do microfone.
+    this.autoListen = opts.autoListen && (this.useText || !!navigator.mediaDevices?.getUserMedia);
   }
 
   get current() { return this.blocks[this.i]; }
@@ -34,6 +37,16 @@ export class Rehearsal {
     if (this.autoListen && !this.meterTried) {
       this.meterTried = true;
       this.meter = await startVoiceMeter();
+      if (!this.meter && !this.useText) {
+        // Sem medidor de volume, o modo "só volume" não funciona.
+        if (recognitionSupported) {
+          this.useText = true;
+          this.ui.notice('Não consegui medir o volume do microfone. Usando o reconhecimento de texto (pode fazer bipes no Android).');
+        } else {
+          this.autoListen = false;
+          this.ui.notice('Não consegui acessar o microfone. Siga com o botão "Próxima" (ou a barra de espaço).');
+        }
+      }
     }
     while (this.running && this.i < this.blocks.length) {
       this.ctrl = new AbortController();
@@ -81,6 +94,7 @@ export class Rehearsal {
       onPrompt: () => this.ui.prompt(),
       pauseMs: this.pauseMs,
       meter: this.meter,
+      useText: this.useText,
       ...expectation,
     });
     if (out.reason !== 'aborted' && out.reason !== 'mic-blocked') {

@@ -9,7 +9,9 @@ outros personagens e escuta a sua fala para saber quando continuar.
 publica de novo automaticamente (GitHub Actions → Pages).
 
 No celular:
-- **Android**: use o Chrome. Pelo menu ⋮, escolha "Adicionar à tela inicial".
+- **Android**: use o Chrome. Pelo menu ⋮, escolha "Adicionar à tela inicial". Para
+  evitar os bipes do sistema, o app percebe o fim das suas falas só pelo volume da
+  voz. A opção "Reconhecer o texto que eu falo" fica desligada por padrão.
 - **iPhone**: use o Safari. Pelo botão Compartilhar, escolha "Adicionar à Tela de Início". O reconhecimento
   de voz do iPhone é menos confiável. Se falhar, siga com o botão "Próxima".
 - Use fone de ouvido e permita o microfone quando o navegador pedir.
