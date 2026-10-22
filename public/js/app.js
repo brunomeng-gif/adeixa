@@ -147,7 +147,7 @@ async function createScript(title, blocks) {
     title,
     blocks,
     voices: {},
-    settings: { mine: [], display: 'initials', readDirections: false, autoListen: true, rate: 1, pauseMs: 300, scene: 0, sceneTo: null },
+    settings: { mine: [], display: 'first3', readDirections: false, autoListen: true, rate: 1, pauseMs: 300, scene: 0, sceneTo: null },
     createdAt: Date.now(),
   };
   await store.saveScript(state.script);
@@ -269,7 +269,7 @@ async function viewSetup() {
       </div>
       <h3>3. Como mostrar as suas falas?</h3>
       <div class="row wrap">
-        ${[['hidden', 'Escondidas'], ['initials', 'Só as iniciais'], ['full', 'Texto completo']].map(([v, l]) => `<label class="radio"><input type="radio" name="display" value="${v}" ${st.display === v ? 'checked' : ''}> ${l}</label>`).join('')}
+        ${[['first3', 'Primeiras três palavras'], ['full', 'Texto completo'], ['hidden', 'Ocultar texto']].map(([v, l]) => `<label class="radio"><input type="radio" name="display" value="${v}" ${displayMode(st) === v ? 'checked' : ''}> ${l}</label>`).join('')}
       </div>
       <h3>4. Opções</h3>
       <label class="check"><input type="checkbox" id="autoListen" ${st.autoListen ? 'checked' : ''}> Ouvir minha voz e dar a deixa sozinho</label>
@@ -479,7 +479,7 @@ async function viewRehearse() {
   $crumb.textContent = `${s.title} · ensaio`;
   $view.innerHTML = html`
     <section class="stage" id="stage">
-      ${blocks.map((b, i) => renderStageBlock(b, i, isMine(b), st.display)).join('')}
+      ${blocks.map((b, i) => renderStageBlock(b, i, isMine(b), displayMode(st))).join('')}
       <div id="summary"></div>
     </section>
     <div class="controls">
@@ -511,7 +511,9 @@ async function viewRehearse() {
       el?.classList.add('current');
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       currentMine = isMine(blocks[i]) ? i : null;
-      revealed = 0; lastResult = null;
+      // No modo "primeiras três palavras", o ponto continua de onde o texto visível parou.
+      revealed = currentMine !== null && displayMode(st) === 'first3' ? FIRST_WORDS : 0;
+      lastResult = null;
       if (currentMine === null) $heard.innerHTML = `<span class="muted">${blocks[i].type === 'speech' ? esc(blocks[i].character) + ' falando…' : ''}</span>`;
     },
     waitingForMe() { $heard.innerHTML = '<span class="you">🎙 Sua vez</span>'; },
@@ -631,14 +633,20 @@ function rhythmFor(script) {
   };
 }
 
-const initials = w => w.replace(/(\p{L})\p{L}*/gu, '$1');
+// Como mostrar as falas do ator. Peças antigas usavam "iniciais": vira "primeiras três palavras".
+const FIRST_WORDS = 3;
+const displayMode = st => (['first3', 'full', 'hidden'].includes(st.display) ? st.display : 'first3');
+const firstWords = text => {
+  const words = text.split(/\s+/);
+  return esc(words.slice(0, FIRST_WORDS).join(' ')) + (words.length > FIRST_WORDS ? ' <span class="muted">…</span>' : '');
+};
 
 function renderStageBlock(b, i, mine, display) {
   if (b.type === 'scene') return `<h2 class="sb scene" id="sb-${i}" data-i="${i}">${esc(b.text)}</h2>`;
   if (b.type === 'direction') return `<div class="sb direction" id="sb-${i}" data-i="${i}">${esc(b.text)}</div>`;
   let line = esc(b.text);
   if (mine && display === 'hidden') line = '<span class="muted">(sua fala)</span>';
-  if (mine && display === 'initials') line = esc(initials(b.text));
+  if (mine && display === 'first3') line = firstWords(b.spoken || b.text);
   return html`<div class="sb speech ${mine ? 'mine' : ''}" id="sb-${i}" data-i="${i}">
     <div class="who">${esc(b.character)}</div>
     <div class="line">${line}</div>

@@ -41,8 +41,8 @@ Use fone de ouvido, para o microfone não captar as deixas.
 1. **Importar**: PDF ou TXT com o nome do personagem antes de cada fala. Também dá para colar o texto.
 2. **Revisar**: confira personagens e falas. Para juntar nomes com erro de
    digitação (ex.: EPAMINODAS → EPAMINONDAS), renomeie um igual ao outro.
-3. **Configurar**: escolha seu papel, as cenas, como ver suas falas (escondidas,
-   só iniciais ou texto completo) e a voz de cada personagem.
+3. **Configurar**: escolha seu papel, as cenas, como ver suas falas (primeiras três
+   palavras, texto completo ou ocultar texto) e a voz de cada personagem.
 4. **Ensaiar**: o app fala as deixas e escuta você. Diga **"texto"** (ou toque em
    💡) para receber o ponto. A barra de espaço avança manualmente.
    Na barra de baixo dá para ajustar, durante o ensaio, a **velocidade das
